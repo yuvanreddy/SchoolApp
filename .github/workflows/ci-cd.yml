@@ -5,6 +5,12 @@ on:
     branches:
       - main
 
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY_BACKEND: schoolapp-backend
+  ECR_REPOSITORY_FRONTEND: schoolapp-frontend
+  EKS_CLUSTER_NAME: schoolapp-cluster
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -13,15 +19,43 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v3
 
-    - name: Build Docker Image
-      run: docker build -t school-app .
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
 
-    - name: Run Container
-      run: |
-        docker compose down || true
-        docker compose up -d
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
 
-    - name: Test API
+    - name: Build and push backend image
       run: |
-        sleep 10  # Wait for container to start
-        curl http://localhost:5000
+        cd backend
+        docker build -t ${{ steps.login-ecr.outputs.docker-registry }}/${{ env.ECR_REPOSITORY_BACKEND }}:$GITHUB_SHA .
+        docker push ${{ steps.login-ecr.outputs.docker-registry }}/${{ env.ECR_REPOSITORY_BACKEND }}:$GITHUB_SHA
+        docker tag ${{ steps.login-ecr.outputs.docker-registry }}/${{ env.ECR_REPOSITORY_BACKEND }}:$GITHUB_SHA ${{ steps.login-ecr.outputs.docker-registry }}/${{ env.ECR_REPOSITORY_BACKEND }}:latest
+        docker push ${{ steps.login-ecr.outputs.docker-registry }}/${{ env.ECR_REPOSITORY_BACKEND }}:latest
+
+    - name: Build and push frontend image
+      run: |
+        cd frontend
+        docker build -t ${{ steps.login-ecr.outputs.docker-registry }}/${{ env.ECR_REPOSITORY_FRONTEND }}:$GITHUB_SHA .
+        docker push ${{ steps.login-ecr.outputs.docker-registry }}/${{ env.ECR_REPOSITORY_FRONTEND }}:$GITHUB_SHA
+        docker tag ${{ steps.login-ecr.outputs.docker-registry }}/${{ env.ECR_REPOSITORY_FRONTEND }}:$GITHUB_SHA ${{ steps.login-ecr.outputs.docker-registry }}/${{ env.ECR_REPOSITORY_FRONTEND }}:latest
+        docker push ${{ steps.login-ecr.outputs.docker-registry }}/${{ env.ECR_REPOSITORY_FRONTEND }}:latest
+
+    - name: Update Kubernetes manifests
+      run: |
+        sed -i 's|YOUR_ACCOUNT_ID|${{ steps.login-ecr.outputs.docker-registry }}|g' k8s/deployment.yml
+        sed -i 's|latest|'$GITHUB_SHA'|g' k8s/deployment.yml
+
+    - name: Configure kubectl
+      run: |
+        aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ env.EKS_CLUSTER_NAME }}
+
+    - name: Deploy to EKS
+      run: |
+        kubectl apply -f k8s/secrets.yml
+        kubectl apply -f k8s/deployment.yml

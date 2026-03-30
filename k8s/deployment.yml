@@ -1,0 +1,121 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: schoolapp-backend
+  labels:
+    app: schoolapp-backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: schoolapp-backend
+  template:
+    metadata:
+      labels:
+        app: schoolapp-backend
+    spec:
+      containers:
+      - name: backend
+        image: YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/schoolapp-backend:latest
+        ports:
+        - containerPort: 5000
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: schoolapp-secrets
+              key: database-url
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: schoolapp-secrets
+              key: secret-key
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: schoolapp-backend-service
+spec:
+  selector:
+    app: schoolapp-backend
+  ports:
+    - protocol: TCP
+      port: 5000
+      targetPort: 5000
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: schoolapp-frontend
+  labels:
+    app: schoolapp-frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: schoolapp-frontend
+  template:
+    metadata:
+      labels:
+        app: schoolapp-frontend
+    spec:
+      containers:
+      - name: frontend
+        image: YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/schoolapp-frontend:latest
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: schoolapp-frontend-service
+spec:
+  selector:
+    app: schoolapp-frontend
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: schoolapp-ingress
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+spec:
+  ingressClassName: alb
+  rules:
+  - http:
+      paths:
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: schoolapp-backend-service
+            port:
+              number: 5000
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: schoolapp-frontend-service
+            port:
+              number: 80
