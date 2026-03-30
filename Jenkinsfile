@@ -4,8 +4,8 @@ pipeline {
     stages {
         stage('Setup') {
             steps {
-                sh 'which python3 || (sudo apt-get update && sudo apt-get install -y python3 python3-pip)'
-                sh 'python3 --version'
+                sh 'sudo apt-get update && sudo apt-get install -y python3 python3-pip'
+                sh 'python3 --version && python3 -m pip --version'
             }
         }
 
@@ -25,13 +25,13 @@ pipeline {
 
         stage('Build Docker Image') {
             steps {
-                sh 'sudo docker build -t school-app .'
+                sh 'docker build -t school-app .'
             }
         }
 
         stage('Deploy') {
             steps {
-                sh 'sudo docker-compose up -d'
+                sh 'docker-compose up -d'
             }
         }
     }
