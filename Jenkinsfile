@@ -2,12 +2,6 @@ pipeline {
     agent any
 
     stages {
-        stage('Checkout') {
-            steps {
-                git 'https://github.com/yuvanreddy/SchoolApp.git'
-            }
-        }
-
         stage('Build Backend') {
             steps {
                 dir('backend') {
