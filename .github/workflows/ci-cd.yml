@@ -54,16 +54,72 @@ jobs:
       working-directory: ./terraform
       run: terraform plan -out=tfplan
 
-    - name: Cleanup existing IAM roles (if any)
+    - name: Cleanup existing AWS resources (if any)
       run: |
-        aws iam get-role --role-name schoolapp-eks-role 2>/dev/null && aws iam delete-role --role-name schoolapp-eks-role || echo "Role schoolapp-eks-role does not exist"
-        aws iam get-role --role-name schoolapp-node-role 2>/dev/null && aws iam delete-role --role-name schoolapp-node-role || echo "Role schoolapp-node-role does not exist"
-        sleep 10  # Wait for cleanup to propagate
-
-    - name: Cleanup existing RDS resources (if any)
-      run: |
-        aws rds delete-db-subnet-group --db-subnet-group-name schoolapp-db-subnet 2>/dev/null || echo "DB subnet group schoolapp-db-subnet does not exist"
-        sleep 5  # Wait for cleanup
+        echo "Starting comprehensive cleanup..."
+        
+        # Delete EKS cluster first (required before deleting IAM roles)
+        if aws eks describe-cluster --name schoolapp-cluster --region ${{ env.AWS_REGION }} 2>/dev/null; then
+          echo "Deleting EKS cluster..."
+          aws eks delete-cluster --name schoolapp-cluster --region ${{ env.AWS_REGION }}
+          
+          # Wait for cluster deletion
+          echo "Waiting for EKS cluster deletion..."
+          aws eks wait cluster-deleted --name schoolapp-cluster --region ${{ env.AWS_REGION }}
+        fi
+        
+        # Delete RDS instances (required before deleting DB subnet group)
+        for db_instance in $(aws rds describe-db-instances --region ${{ env.AWS_REGION }} --query 'DBInstances[?starts_with(DBInstanceIdentifier, `schoolapp-db`)].DBInstanceIdentifier' --output text 2>/dev/null); do
+          echo "Deleting RDS instance: $db_instance"
+          aws rds delete-db-instance --db-instance-identifier $db_instance --skip-final-snapshot --region ${{ env.AWS_REGION }}
+          
+          # Wait for deletion
+          echo "Waiting for RDS instance $db_instance deletion..."
+          aws rds wait db-instance-deleted --db-instance-identifier $db_instance --region ${{ env.AWS_REGION }}
+        done
+        
+        # Function to clean up IAM role
+        cleanup_role() {
+          local role_name=$1
+          echo "Checking role: $role_name"
+          
+          if aws iam get-role --role-name "$role_name" --region ${{ env.AWS_REGION }} 2>/dev/null; then
+            echo "Deleting $role_name..."
+            
+            # Detach all managed policies
+            for policy_arn in $(aws iam list-attached-role-policies --role-name "$role_name" --query 'AttachedPolicies[*].PolicyArn' --output text 2>/dev/null); do
+              echo "Detaching managed policy: $policy_arn"
+              aws iam detach-role-policy --role-name "$role_name" --policy-arn "$policy_arn" 2>/dev/null || echo "Failed to detach $policy_arn"
+            done
+            
+            # Delete all inline policies
+            for policy_name in $(aws iam list-role-policies --role-name "$role_name" --query 'PolicyNames[*]' --output text 2>/dev/null); do
+              echo "Deleting inline policy: $policy_name"
+              aws iam delete-role-policy --role-name "$role_name" --policy-name "$policy_name" 2>/dev/null || echo "Failed to delete inline policy $policy_name"
+            done
+            
+            # Remove from instance profiles if any
+            for profile_name in $(aws iam list-instance-profiles-for-role --role-name "$role_name" --query 'InstanceProfiles[*].InstanceProfileName' --output text 2>/dev/null); do
+              echo "Removing from instance profile: $profile_name"
+              aws iam remove-role-from-instance-profile --instance-profile-name "$profile_name" --role-name "$role_name" 2>/dev/null || echo "Failed to remove from profile $profile_name"
+            done
+            
+            # Finally delete the role
+            aws iam delete-role --role-name "$role_name" 2>/dev/null && echo "Successfully deleted $role_name" || echo "Failed to delete $role_name"
+          else
+            echo "Role $role_name does not exist"
+          fi
+        }
+        
+        # Clean up IAM roles
+        cleanup_role "schoolapp-eks-role"
+        cleanup_role "schoolapp-node-role"
+        
+        # Delete DB subnet group
+        aws rds delete-db-subnet-group --db-subnet-group-name schoolapp-db-subnet --region ${{ env.AWS_REGION }} 2>/dev/null || echo "DB subnet group schoolapp-db-subnet does not exist"
+        
+        echo "Cleanup complete. Waiting for changes to propagate..."
+        sleep 30
 
     - name: Terraform Apply
       if: github.event.inputs.destroy != 'true'
