@@ -54,6 +54,12 @@ jobs:
       working-directory: ./terraform
       run: terraform plan -out=tfplan
 
+    - name: Cleanup existing IAM roles (if any)
+      run: |
+        aws iam get-role --role-name schoolapp-eks-role 2>/dev/null && aws iam delete-role --role-name schoolapp-eks-role || echo "Role schoolapp-eks-role does not exist"
+        aws iam get-role --role-name schoolapp-node-role 2>/dev/null && aws iam delete-role --role-name schoolapp-node-role || echo "Role schoolapp-node-role does not exist"
+        sleep 10  # Wait for cleanup to propagate
+
     - name: Terraform Apply
       if: github.event.inputs.destroy != 'true'
       working-directory: ./terraform
