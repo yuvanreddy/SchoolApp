@@ -2,24 +2,10 @@ pipeline {
     agent any
 
     stages {
-        stage('Setup') {
-            steps {
-                sh 'sudo apt-get update && sudo apt-get install -y python3 python3-pip'
-                sh 'python3 --version && python3 -m pip --version'
-            }
-        }
 
-        stage('Build Backend') {
+        stage('Clone Repo') {
             steps {
-                sh 'python3 -m pip install --user -r backend/requirements.txt || pip install -r backend/requirements.txt'
-            }
-        }
-
-        stage('Test Backend') {
-            steps {
-                dir('backend') {
-                    sh 'python3 -m pytest || echo "No tests found, skipping"'  // Assuming tests exist, add if needed
-                }
+                git 'https://github.com/your-username/school-app.git'
             }
         }
 
@@ -29,9 +15,16 @@ pipeline {
             }
         }
 
-        stage('Deploy') {
+        stage('Run Container') {
             steps {
+                sh 'docker-compose down || true'
                 sh 'docker-compose up -d'
+            }
+        }
+
+        stage('Test API') {
+            steps {
+                sh 'curl http://localhost:5000'
             }
         }
     }

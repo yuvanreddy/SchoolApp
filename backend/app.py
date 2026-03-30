@@ -1,25 +1,19 @@
-from flask import Flask, request, jsonify
-from models import db, Student
+from flask import Flask, jsonify
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///school.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-db.init_app(app)
+@app.route('/')
+def home():
+    return jsonify({"message": "School App Backend Running"})
 
-@app.route('/students', methods=['GET', 'POST'])
-def students():
-    if request.method == 'GET':
-        students = Student.query.all()
-        return jsonify([{'id': s.id, 'name': s.name, 'grade': s.grade} for s in students])
-    elif request.method == 'POST':
-        data = request.get_json()
-        new_student = Student(name=data['name'], grade=data['grade'])
-        db.session.add(new_student)
-        db.session.commit()
-        return jsonify({'message': 'Student added'}), 201
+@app.route('/dashboard')
+def dashboard():
+    data = {
+        "attendance": "95%",
+        "assignments": 5,
+        "notifications": 3
+    }
+    return jsonify(data)
 
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
-    app.run(debug=True)
+    app.run(host='0.0.0.0', port=5000)
