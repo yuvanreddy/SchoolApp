@@ -3,6 +3,9 @@ pipeline {
 
     stages {
         stage('Build Backend') {
+            agent {
+                docker { image 'python:3.9-slim' }
+            }
             steps {
                 dir('backend') {
                     sh 'pip install -r requirements.txt'
@@ -11,6 +14,9 @@ pipeline {
         }
 
         stage('Test Backend') {
+            agent {
+                docker { image 'python:3.9-slim' }
+            }
             steps {
                 dir('backend') {
                     sh 'python -m pytest'  // Assuming tests exist, add if needed
