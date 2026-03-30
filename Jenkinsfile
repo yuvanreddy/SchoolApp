@@ -2,6 +2,13 @@ pipeline {
     agent any
 
     stages {
+        stage('Setup') {
+            steps {
+                sh 'which python3 || (sudo apt-get update && sudo apt-get install -y python3 python3-pip)'
+                sh 'python3 --version'
+            }
+        }
+
         stage('Build Backend') {
             steps {
                 sh 'python3 -m pip install --user -r backend/requirements.txt || pip install -r backend/requirements.txt'
