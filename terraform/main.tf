@@ -58,6 +58,14 @@ resource "aws_vpc" "main" {
   }
 }
 
+resource "aws_eip" "nat" {
+  domain = "vpc"
+
+  tags = {
+    Name = "schoolapp-nat"
+  }
+}
+
 resource "aws_internet_gateway" "gw" {
   vpc_id = aws_vpc.main.id
 
@@ -302,7 +310,7 @@ resource "aws_security_group" "rds" {
 resource "aws_db_instance" "schoolapp" {
   identifier             = "schoolapp-db"
   engine                 = "postgres"
-  engine_version         = "15.3"
+  engine_version         = "15"
   instance_class         = "db.t3.micro"
   allocated_storage      = 20
   username               = var.db_username
