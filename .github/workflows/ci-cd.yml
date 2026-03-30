@@ -50,62 +50,108 @@ jobs:
       working-directory: ./terraform
       run: terraform validate
 
-    - name: Terraform Plan
-      working-directory: ./terraform
-      run: terraform plan -out=tfplan
-
     - name: Import existing AWS resources (if any)
       working-directory: ./terraform
       run: |
         echo "Checking for existing AWS resources to import..."
         
+        # Refresh Terraform state first
+        terraform refresh -var="db_username=${{ env.TF_VAR_db_username }}" -var="db_password=${{ env.TF_VAR_db_password }}"
+        
+        IMPORT_SUCCESS=false
+        
         # Import EKS cluster if exists
         if aws eks describe-cluster --name schoolapp-cluster --region ${{ env.AWS_REGION }} 2>/dev/null; then
           echo "Importing existing EKS cluster..."
-          terraform import aws_eks_cluster.schoolapp schoolapp-cluster || echo "Failed to import EKS cluster"
+          if terraform import -var="db_username=${{ env.TF_VAR_db_username }}" -var="db_password=${{ env.TF_VAR_db_password }}" aws_eks_cluster.schoolapp schoolapp-cluster; then
+            echo "✅ EKS cluster imported successfully"
+            IMPORT_SUCCESS=true
+          else
+            echo "❌ Failed to import EKS cluster"
+          fi
         fi
         
         # Import EKS node group if exists
         if aws eks describe-nodegroup --cluster-name schoolapp-cluster --nodegroup-name schoolapp-node-group --region ${{ env.AWS_REGION }} 2>/dev/null; then
           echo "Importing existing EKS node group..."
-          terraform import aws_eks_node_group.schoolapp schoolapp-cluster:schoolapp-node-group || echo "Failed to import EKS node group"
+          if terraform import -var="db_username=${{ env.TF_VAR_db_username }}" -var="db_password=${{ env.TF_VAR_db_password }}" aws_eks_node_group.schoolapp schoolapp-cluster:schoolapp-node-group; then
+            echo "✅ EKS node group imported successfully"
+            IMPORT_SUCCESS=true
+          else
+            echo "❌ Failed to import EKS node group"
+          fi
         fi
         
         # Import IAM roles if exist
-        if aws iam get-role --role-name schoolapp-eks-role --region ${{ env.AWS_REGION }} 2>/dev/null; then
+        if aws iam get-role --role-name schoolapp-eks-role 2>/dev/null; then
           echo "Importing existing EKS IAM role..."
-          terraform import aws_iam_role.eks schoolapp-eks-role || echo "Failed to import EKS role"
+          if terraform import -var="db_username=${{ env.TF_VAR_db_username }}" -var="db_password=${{ env.TF_VAR_db_password }}" aws_iam_role.eks schoolapp-eks-role; then
+            echo "✅ EKS IAM role imported successfully"
+            IMPORT_SUCCESS=true
+          else
+            echo "❌ Failed to import EKS IAM role"
+          fi
         fi
         
-        if aws iam get-role --role-name schoolapp-node-role --region ${{ env.AWS_REGION }} 2>/dev/null; then
+        if aws iam get-role --role-name schoolapp-node-role 2>/dev/null; then
           echo "Importing existing Node IAM role..."
-          terraform import aws_iam_role.node schoolapp-node-role || echo "Failed to import Node role"
+          if terraform import -var="db_username=${{ env.TF_VAR_db_username }}" -var="db_password=${{ env.TF_VAR_db_password }}" aws_iam_role.node schoolapp-node-role; then
+            echo "✅ Node IAM role imported successfully"
+            IMPORT_SUCCESS=true
+          else
+            echo "❌ Failed to import Node IAM role"
+          fi
         fi
         
         # Import RDS instance if exists
         for db_instance in $(aws rds describe-db-instances --region ${{ env.AWS_REGION }} --query 'DBInstances[?starts_with(DBInstanceIdentifier, `schoolapp-db`)].DBInstanceIdentifier' --output text 2>/dev/null); do
           echo "Importing existing RDS instance: $db_instance"
-          terraform import aws_db_instance.schoolapp $db_instance || echo "Failed to import RDS instance"
+          if terraform import -var="db_username=${{ env.TF_VAR_db_username }}" -var="db_password=${{ env.TF_VAR_db_password }}" aws_db_instance.schoolapp $db_instance; then
+            echo "✅ RDS instance imported successfully"
+            IMPORT_SUCCESS=true
+          else
+            echo "❌ Failed to import RDS instance"
+          fi
         done
         
         # Import DB subnet group if exists
         if aws rds describe-db-subnet-groups --db-subnet-group-name schoolapp-db-subnet --region ${{ env.AWS_REGION }} 2>/dev/null; then
           echo "Importing existing DB subnet group..."
-          terraform import aws_db_subnet_group.schoolapp schoolapp-db-subnet || echo "Failed to import DB subnet group"
+          if terraform import -var="db_username=${{ env.TF_VAR_db_username }}" -var="db_password=${{ env.TF_VAR_db_password }}" aws_db_subnet_group.schoolapp schoolapp-db-subnet; then
+            echo "✅ DB subnet group imported successfully"
+            IMPORT_SUCCESS=true
+          else
+            echo "❌ Failed to import DB subnet group"
+          fi
         fi
         
         # Import VPC and subnets if exist (basic import for VPC)
         for vpc_id in $(aws ec2 describe-vpcs --filters "Name=tag:Name,Values=schoolapp-vpc" --query 'Vpcs[*].VpcId' --output text --region ${{ env.AWS_REGION }} 2>/dev/null); do
           echo "Importing existing VPC: $vpc_id"
-          terraform import aws_vpc.main $vpc_id || echo "Failed to import VPC"
+          if terraform import -var="db_username=${{ env.TF_VAR_db_username }}" -var="db_password=${{ env.TF_VAR_db_password }}" aws_vpc.main $vpc_id; then
+            echo "✅ VPC imported successfully"
+            IMPORT_SUCCESS=true
+          else
+            echo "❌ Failed to import VPC"
+          fi
         done
         
-        echo "Resource import complete. Proceeding with Terraform apply..."
+        # Show final state
+        echo "Current Terraform state:"
+        terraform state list
+        
+        # Final state refresh
+        terraform refresh -var="db_username=${{ env.TF_VAR_db_username }}" -var="db_password=${{ env.TF_VAR_db_password }}"
+        
+        if [ "$IMPORT_SUCCESS" = true ]; then
+          echo "✅ Resource import completed successfully. Some existing resources were imported."
+        else
+          echo "ℹ️ No existing resources found to import, proceeding with fresh deployment."
+        fi
 
-    - name: Terraform Apply
-      if: github.event.inputs.destroy != 'true'
+    - name: Terraform Plan
       working-directory: ./terraform
-      run: terraform apply -auto-approve tfplan
+      run: terraform plan -var="db_username=${{ env.TF_VAR_db_username }}" -var="db_password=${{ env.TF_VAR_db_password }}" -out=tfplan
 
     - name: Get ALB URL
       if: github.event.inputs.destroy != 'true'

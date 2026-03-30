@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: backend
-        image: YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/schoolapp-backend:latest
+        image: 816069153839.dkr.ecr.us-east-1.amazonaws.com/schoolapp-backend:latest
         ports:
         - containerPort: 5000
         env:
@@ -69,7 +69,7 @@ spec:
     spec:
       containers:
       - name: frontend
-        image: YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/schoolapp-frontend:latest
+        image: 816069153839.dkr.ecr.us-east-1.amazonaws.com/schoolapp-frontend:latest
         ports:
         - containerPort: 80
         resources:
