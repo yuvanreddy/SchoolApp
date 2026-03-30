@@ -60,6 +60,11 @@ jobs:
         aws iam get-role --role-name schoolapp-node-role 2>/dev/null && aws iam delete-role --role-name schoolapp-node-role || echo "Role schoolapp-node-role does not exist"
         sleep 10  # Wait for cleanup to propagate
 
+    - name: Cleanup existing RDS resources (if any)
+      run: |
+        aws rds delete-db-subnet-group --db-subnet-group-name schoolapp-db-subnet 2>/dev/null || echo "DB subnet group schoolapp-db-subnet does not exist"
+        sleep 5  # Wait for cleanup
+
     - name: Terraform Apply
       if: github.event.inputs.destroy != 'true'
       working-directory: ./terraform
