@@ -1,30 +1,18 @@
-name: Full Stack Deployment
+name: Application Deployment
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
-    inputs:
-      destroy:
-        description: 'Destroy infrastructure?'
-        required: false
-        default: 'false'
 
 env:
   AWS_REGION: us-east-1
   ECR_REPOSITORY_BACKEND: schoolapp-backend
   ECR_REPOSITORY_FRONTEND: schoolapp-frontend
   EKS_CLUSTER_NAME: schoolapp-cluster
-  TF_VAR_db_username: yuvan
-  TF_VAR_db_password: JasWik2325
 
 jobs:
-  terraform:
-    name: 'Terraform Infrastructure'
+  build-and-deploy:
+    name: 'Build and Deploy App'
     runs-on: ubuntu-latest
-    outputs:
-      alb-url: ${{ steps.alb-url.outputs.url }}
 
     steps:
     - name: Checkout code
@@ -37,141 +25,69 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ env.AWS_REGION }}
 
-    - name: Setup Terraform
-      uses: hashicorp/setup-terraform@v2
-      with:
-        terraform_version: 1.5.0
-
-    - name: Terraform Init
-      working-directory: ./terraform
-      run: terraform init
-
-    - name: Terraform Validate
-      working-directory: ./terraform
-      run: terraform validate
-
-    - name: Import existing AWS resources (if any)
-      working-directory: ./terraform
+    - name: Get AWS Account ID
       run: |
-        echo "Checking for existing AWS resources to import..."
-        
-        # Refresh Terraform state first
-        terraform refresh -var="db_username=${{ env.TF_VAR_db_username }}" -var="db_password=${{ env.TF_VAR_db_password }}"
-        
-        IMPORT_SUCCESS=false
-        
-        # Import EKS cluster if exists
-        if aws eks describe-cluster --name schoolapp-cluster --region ${{ env.AWS_REGION }} 2>/dev/null; then
-          echo "Importing existing EKS cluster..."
-          if terraform import -var="db_username=${{ env.TF_VAR_db_username }}" -var="db_password=${{ env.TF_VAR_db_password }}" aws_eks_cluster.schoolapp schoolapp-cluster; then
-            echo "✅ EKS cluster imported successfully"
-            IMPORT_SUCCESS=true
-          else
-            echo "❌ Failed to import EKS cluster"
-          fi
-        fi
-        
-        # Import EKS node group if exists
-        if aws eks describe-nodegroup --cluster-name schoolapp-cluster --nodegroup-name schoolapp-node-group --region ${{ env.AWS_REGION }} 2>/dev/null; then
-          echo "Importing existing EKS node group..."
-          if terraform import -var="db_username=${{ env.TF_VAR_db_username }}" -var="db_password=${{ env.TF_VAR_db_password }}" aws_eks_node_group.schoolapp schoolapp-cluster:schoolapp-node-group; then
-            echo "✅ EKS node group imported successfully"
-            IMPORT_SUCCESS=true
-          else
-            echo "❌ Failed to import EKS node group"
-          fi
-        fi
-        
-        # Import IAM roles if exist
-        if aws iam get-role --role-name schoolapp-eks-role 2>/dev/null; then
-          echo "Importing existing EKS IAM role..."
-          if terraform import -var="db_username=${{ env.TF_VAR_db_username }}" -var="db_password=${{ env.TF_VAR_db_password }}" aws_iam_role.eks schoolapp-eks-role; then
-            echo "✅ EKS IAM role imported successfully"
-            IMPORT_SUCCESS=true
-          else
-            echo "❌ Failed to import EKS IAM role"
-          fi
-        fi
-        
-        if aws iam get-role --role-name schoolapp-node-role 2>/dev/null; then
-          echo "Importing existing Node IAM role..."
-          if terraform import -var="db_username=${{ env.TF_VAR_db_username }}" -var="db_password=${{ env.TF_VAR_db_password }}" aws_iam_role.node schoolapp-node-role; then
-            echo "✅ Node IAM role imported successfully"
-            IMPORT_SUCCESS=true
-          else
-            echo "❌ Failed to import Node IAM role"
-          fi
-        fi
-        
-        # Import RDS instance if exists
-        for db_instance in $(aws rds describe-db-instances --region ${{ env.AWS_REGION }} --query 'DBInstances[?starts_with(DBInstanceIdentifier, `schoolapp-db`)].DBInstanceIdentifier' --output text 2>/dev/null); do
-          echo "Importing existing RDS instance: $db_instance"
-          if terraform import -var="db_username=${{ env.TF_VAR_db_username }}" -var="db_password=${{ env.TF_VAR_db_password }}" aws_db_instance.schoolapp $db_instance; then
-            echo "✅ RDS instance imported successfully"
-            IMPORT_SUCCESS=true
-          else
-            echo "❌ Failed to import RDS instance"
-          fi
-        done
-        
-        # Import DB subnet group if exists
-        if aws rds describe-db-subnet-groups --db-subnet-group-name schoolapp-db-subnet --region ${{ env.AWS_REGION }} 2>/dev/null; then
-          echo "Importing existing DB subnet group..."
-          if terraform import -var="db_username=${{ env.TF_VAR_db_username }}" -var="db_password=${{ env.TF_VAR_db_password }}" aws_db_subnet_group.schoolapp schoolapp-db-subnet; then
-            echo "✅ DB subnet group imported successfully"
-            IMPORT_SUCCESS=true
-          else
-            echo "❌ Failed to import DB subnet group"
-          fi
-        fi
-        
-        # Import VPC and subnets if exist (basic import for VPC)
-        for vpc_id in $(aws ec2 describe-vpcs --filters "Name=tag:Name,Values=schoolapp-vpc" --query 'Vpcs[*].VpcId' --output text --region ${{ env.AWS_REGION }} 2>/dev/null); do
-          echo "Importing existing VPC: $vpc_id"
-          if terraform import -var="db_username=${{ env.TF_VAR_db_username }}" -var="db_password=${{ env.TF_VAR_db_password }}" aws_vpc.main $vpc_id; then
-            echo "✅ VPC imported successfully"
-            IMPORT_SUCCESS=true
-          else
-            echo "❌ Failed to import VPC"
-          fi
-        done
-        
-        # Show final state
-        echo "Current Terraform state:"
-        terraform state list
-        
-        # Final state refresh
-        terraform refresh -var="db_username=${{ env.TF_VAR_db_username }}" -var="db_password=${{ env.TF_VAR_db_password }}"
-        
-        if [ "$IMPORT_SUCCESS" = true ]; then
-          echo "✅ Resource import completed successfully. Some existing resources were imported."
-        else
-          echo "ℹ️ No existing resources found to import, proceeding with fresh deployment."
-        fi
+        ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+        echo "ACCOUNT_ID=$ACCOUNT_ID" >> $GITHUB_ENV
 
-    - name: Terraform Plan
-      working-directory: ./terraform
-      run: terraform plan -var="db_username=${{ env.TF_VAR_db_username }}" -var="db_password=${{ env.TF_VAR_db_password }}" -out=tfplan
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
 
-    - name: Get ALB URL
-      if: github.event.inputs.destroy != 'true'
-      id: alb-url
+    - name: Create ECR repositories
       run: |
-        sleep 30  # Wait for ALB to be ready
+        aws ecr describe-repositories --repository-names ${{ env.ECR_REPOSITORY_BACKEND }} || aws ecr create-repository --repository-name ${{ env.ECR_REPOSITORY_BACKEND }}
+        aws ecr describe-repositories --repository-names ${{ env.ECR_REPOSITORY_FRONTEND }} || aws ecr create-repository --repository-name ${{ env.ECR_REPOSITORY_FRONTEND }}
+
+    - name: Build and push backend image
+      run: |
+        cd backend
+        ECR_REGISTRY=$ACCOUNT_ID.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+        docker build -t $ECR_REGISTRY/${{ env.ECR_REPOSITORY_BACKEND }}:$GITHUB_SHA .
+        docker push $ECR_REGISTRY/${{ env.ECR_REPOSITORY_BACKEND }}:$GITHUB_SHA
+        docker tag $ECR_REGISTRY/${{ env.ECR_REPOSITORY_BACKEND }}:$GITHUB_SHA $ECR_REGISTRY/${{ env.ECR_REPOSITORY_BACKEND }}:latest
+        docker push $ECR_REGISTRY/${{ env.ECR_REPOSITORY_BACKEND }}:latest
+
+    - name: Build and push frontend image
+      run: |
+        cd frontend
+        ECR_REGISTRY=$ACCOUNT_ID.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+        docker build -t $ECR_REGISTRY/${{ env.ECR_REPOSITORY_FRONTEND }}:$GITHUB_SHA .
+        docker push $ECR_REGISTRY/${{ env.ECR_REPOSITORY_FRONTEND }}:$GITHUB_SHA
+        docker tag $ECR_REGISTRY/${{ env.ECR_REPOSITORY_FRONTEND }}:$GITHUB_SHA $ECR_REGISTRY/${{ env.ECR_REPOSITORY_FRONTEND }}:latest
+        docker push $ECR_REGISTRY/${{ env.ECR_REPOSITORY_FRONTEND }}:latest
+
+    - name: Update Kubernetes manifests
+      run: |
+        ECR_REGISTRY=$ACCOUNT_ID.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+        sed -i "s|YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com|$ECR_REGISTRY|g" k8s/deployment.yml
+        sed -i 's|latest|'$GITHUB_SHA'|g' k8s/deployment.yml
+
+    - name: Configure kubectl
+      run: |
+        aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ env.EKS_CLUSTER_NAME }}
+
+    - name: Deploy to EKS
+      run: |
+        kubectl apply -f k8s/secrets.yml --validate=false
+        kubectl apply -f k8s/deployment.yml --validate=false
+
+    - name: Wait for deployment
+      run: |
+        kubectl rollout status deployment/schoolapp-backend -n default --timeout=300s
+        kubectl rollout status deployment/schoolapp-frontend -n default --timeout=300s
+
+    - name: Display Final URLs
+      run: |
         ALB_URL=$(aws elbv2 describe-load-balancers --region ${{ env.AWS_REGION }} --query 'LoadBalancers[?contains(LoadBalancerName, `schoolapp`)].DNSName' --output text)
-        echo "url=$ALB_URL" >> $GITHUB_OUTPUT
-        echo "ALB URL: $ALB_URL"
-
-    - name: Terraform Destroy
-      if: github.event.inputs.destroy == 'true'
-      working-directory: ./terraform
-      run: terraform destroy -auto-approve
-
-  build-and-deploy:
-    name: 'Build and Deploy App'
-    runs-on: ubuntu-latest
-    needs: terraform
-    if: github.event.inputs.destroy != 'true'
+        echo "🎉 Deployment Complete!"
+        echo "Frontend URL: http://$ALB_URL"
+        echo "Backend API: http://$ALB_URL/api"
+        echo ""
+        echo "Test real-time notifications:"
+        echo "- Open the frontend URL"
+        echo "- Click 'Send Test Notification'"
+        echo "- See live updates via WebSocket!"
 
     steps:
     - name: Checkout code
