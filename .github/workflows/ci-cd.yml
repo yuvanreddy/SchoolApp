@@ -18,8 +18,8 @@ jobs:
 
     - name: Run Container
       run: |
-        docker-compose down || true
-        docker-compose up -d
+        docker compose down || true
+        docker compose up -d
 
     - name: Test API
       run: |
