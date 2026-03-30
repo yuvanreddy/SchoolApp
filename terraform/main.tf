@@ -107,10 +107,6 @@ resource "aws_nat_gateway" "nat" {
   }
 }
 
-resource "aws_eip" "nat" {
-  vpc = true
-}
-
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
 
